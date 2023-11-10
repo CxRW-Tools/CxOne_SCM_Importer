@@ -52,7 +52,3 @@ python cxone_scm_importer.py --base_url https://cxone.example.com --tenant_name 
 ## Output
 
 The CxOne SCM Importer will provide console output indicating the steps being performed, such as authentication, project existence check, project creation, and conversion to SCM project. If the `--debug` flag is used, additional diagnostic information will be displayed to assist in troubleshooting and verifying the process.
-
----
-
-Feel free to adjust and edit this content to best fit your tool's documentation and usage guidelines.
