@@ -207,19 +207,16 @@ def convert_to_scm_project(project_id, repo_url, scm_token, scm_org):
         "scmOnPremUrl": None,
         "orgIdentity": scm_org,
         "token": scm_token,
-        "webhookEnabled": False,
-        "autoScanCxProjectAfterConversion": False,
+        "webhookEnabled": True,
+        "autoScanCxProjectAfterConversion": True,
         "projects": [
             {
                 "cxProjectId": project_id,
                 "scmRepositoryUrl": repo_url,
-                # Add any additional fields that may be necessary
             }
         ]
     }
     
-    print("conversion data: ",json.dumps(data,indent=4)) #deleteme
-
     conversion_url = f"{base_url}/api/repos-manager/project-conversion"
 
     try:
@@ -228,18 +225,15 @@ def convert_to_scm_project(project_id, repo_url, scm_token, scm_org):
         
         body = response.json()
         process_id = body.get('processId')
-        message = body.get('message', '')
-        print(f"message: {message}") #deleteme
+        
+        if not process_id :
+            raise ValueError("Response JSON does not contain 'processId'.")
 
-        if not process_id or not message:
-            raise ValueError("Response JSON does not contain 'processId' or 'message'.")
-        
-        # Use regex to extract URL from message
-        url_match = re.search(r'(https?://\S+)', message)
-        conversion_url = url_match.group(0) if url_match else None
-        
-        # Return both process ID and URL
-        return process_id, conversion_url
+        if debug:
+            print(f"Started conversion process with ID {process_id}")
+
+        # Return processId
+        return process_id
 
     except requests.exceptions.RequestException as e:
         print(f"An error occurred while converting the project: {e}")
@@ -264,7 +258,7 @@ def determine_scm_type(repo_url):
         print("Error: Unsupported SCM type or invalid repository URL.")
         sys.exit(1)
 
-def check_conversion_status(process_id, status_url):
+def check_conversion_status(process_id):
     headers = {
         'Accept': 'application/json; version=1.0',
         'Authorization': f'Bearer {auth_token}',
@@ -272,19 +266,14 @@ def check_conversion_status(process_id, status_url):
         'CorrelationId': ''
     }
 
-    status_url = f"{base_url}/api/repos-manager/project-conversion"
+    status_url = f"{base_url}/api/repos-manager/conversion/status"
 
-    print(f"status URL: {status_url}") #deleteme
     try:
-        response = requests.post(status_url, headers=headers, params={'processId': process_id})
+        response = requests.get(status_url, headers=headers, params={'processId': process_id})
         response.raise_for_status()
         status_data = response.json()
         return status_data.get('migrationStatus'), status_data.get('summary')
     except requests.exceptions.HTTPError as e:
-        # Check if the response status code is 405 Method Not Allowed
-        if response.status_code == 405:
-            allowed_methods = response.headers.get('Allow')
-            print(f"405 Method Not Allowed. Allowed methods: {allowed_methods}")
         print(f"Error checking conversion status: {e}")
         sys.exit(1)
     except requests.exceptions.RequestException as e:
@@ -345,19 +334,19 @@ def main():
             print(f"Project {project_name} already exists as an SCM project!")
             sys.exit(0)
         
-    process_id, status_url = convert_to_scm_project(project_id, repo_url, scm_token, scm_org)
+    process_id = convert_to_scm_project(project_id, repo_url, scm_token, scm_org)
 
-    migration_status, summary = "", ""
+    migration_status, summary = "IN_PROGRESS", ""
 
     # Loop until the status is not 'IN_PROGRESS'
-    while migration_status != "IN_PROGRESS":
-        migration_status, summary = check_conversion_status(process_id, status_url)
+    while migration_status == "IN_PROGRESS":
+        migration_status, summary = check_conversion_status(process_id)
         if migration_status == "IN_PROGRESS":
-            print("Conversion in progress...")
-            time.sleep(5)
+            if debug:
+                print("Conversion in progress...")
+            time.sleep(1)
         else:
-            print(summary)
-            # Here you would handle other statuses if needed
+            print(f"SCM project created for {project_name}")
             break
   
 if __name__ == "__main__":
