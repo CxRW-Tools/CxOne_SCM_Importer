@@ -120,6 +120,41 @@ def check_project_exists(project_name):
         print(f"An error occurred while checking for project existence: {e}")
         sys.exit(1)
 
+def check_repo_onboarded(repo_url):
+    if debug:
+        print(f"Checking if a project already exists with {repo_url}")
+    
+    headers = {
+        'Accept': 'application/json; version=1.0',
+        'Authorization': f'Bearer {auth_token}',
+    }
+    
+    params = {
+        "repo-url": repo_url
+    }
+
+    projects_url = f"{base_url}/api/projects/"
+
+    try:
+        response = requests.get(projects_url, headers=headers, params=params)
+        response.raise_for_status()
+        projects = response.json()
+
+        # Check if the 'projects' key is not None before iterating
+        if projects.get('projects') is not None:
+            for project in projects['projects']:
+                if project.get('repoUrl') == repo_url and len(project.get('imported_proj_name')) > 0:
+                    if debug:
+                        print(f"Repo already in use")
+                    return project.get('name')
+        
+        if debug:
+            print(f"No project found using {repo_url}")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while checking for project existence: {e}")
+        sys.exit(1)
+
 def create_project(project_name, repo_url, groups, tags):
     if debug:
         print(f"Creating project: {project_name}")
@@ -208,7 +243,7 @@ def convert_to_scm_project(project_id, repo_url, scm_token, scm_org):
         "orgIdentity": scm_org,
         "token": scm_token,
         "webhookEnabled": True,
-        "autoScanCxProjectAfterConversion": True,
+        "autoScanCxProjectAfterConversion": False,
         "projects": [
             {
                 "cxProjectId": project_id,
@@ -225,6 +260,7 @@ def convert_to_scm_project(project_id, repo_url, scm_token, scm_org):
         
         body = response.json()
         process_id = body.get('processId')
+        message = body.get('message')
         
         if not process_id :
             raise ValueError("Response JSON does not contain 'processId'.")
@@ -232,8 +268,7 @@ def convert_to_scm_project(project_id, repo_url, scm_token, scm_org):
         if debug:
             print(f"Started conversion process with ID {process_id}")
 
-        # Return processId
-        return process_id
+        return process_id, message
 
     except requests.exceptions.RequestException as e:
         print(f"An error occurred while converting the project: {e}")
@@ -334,7 +369,7 @@ def main():
             print(f"Project {project_name} already exists as an SCM project!")
             sys.exit(0)
         
-    process_id = convert_to_scm_project(project_id, repo_url, scm_token, scm_org)
+    process_id, message = convert_to_scm_project(project_id, repo_url, scm_token, scm_org)
 
     migration_status, summary = "IN_PROGRESS", ""
 
@@ -345,9 +380,19 @@ def main():
             if debug:
                 print("Conversion in progress...")
             time.sleep(1)
-        else:
-            print(f"SCM project created for {project_name}")
+        elif migration_status == "OK":
+            print(f"SCM project created for {project_name}.")
             break
+        else:
+            if debug:
+                print(f"Conversion status: {migration_status}")
+            existing_project_name = check_repo_onboarded(repo_url)
+            if existing_project_name is None:
+                print(f"SCM project conversion failed due to unknown error! {summary}")
+            else:
+                print(f"SCM project conversion failed! The repository {repo_url} is already in use by project {existing_project_name}.")
+            sys.exit(1)
+
   
 if __name__ == "__main__":
     main()
